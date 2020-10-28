@@ -94,10 +94,9 @@ import sklearn.metrics
 from torch.optim.lr_scheduler import _LRScheduler
 
 #dpu
-from ctypes import *
-
-so_file="/home/upmem0016/niloo/PIM-Embedding-Lookup/upmem/emblib.so"
-my_functions=CDLL(so_file)
+from ctypes import *	
+so_file="./emblib.so"
+my_functions=CDLL(so_file)	
 #dpu
 
 exc = getattr(builtins, "IOError", "FileNotFoundError")
@@ -271,9 +270,6 @@ class DLRM_Net(nn.Module):
                 self.emb_l = self.create_emb(m_spa, ln_emb)
             self.bot_l = self.create_mlp(ln_bot, sigmoid_bot)
             self.top_l = self.create_mlp(ln_top, sigmoid_top)
-            #print("make export running")
-            #self.export_emb(self.emb_l)
-    
 
     def apply_mlp(self, x, layers):
         # approach 1: use ModuleList
@@ -296,24 +292,23 @@ class DLRM_Net(nn.Module):
         offsets=[]
         indices_len=[]
         offsets_len=[]
-        for k,index_list in enumerate(lS_i):
-            indices.extend(list(index_list.tolist()))
-            offsets.extend(list(lS_o[k].tolist()))
-            indices_len.append(len(index_list))
-            offsets_len.append(len(lS_o[k]))
-        #print(offsets)
-
-        #my_functions.lookup.argtypes = POINTER(c_uint32), POINTER(c_uint32), POINTER(c_uint32), POINTER(c_uint32)
-        #my_functions.lookup.restype= None
-
-        indices_pointer=(c_uint32*(len(indices)))(*indices)
-        offsets_pointer=(c_uint32*(len(offsets)))(*offsets)
-        indices_len_pointer=(c_uint32*(len(indices_len)))(*indices_len)
-        offsets_len_pointer=(c_uint32*(len(offsets_len)))(*offsets_len)
-        #my_functions.lookup(indices_pointer,offsets_pointer,indices_len_pointer,offsets_len_pointer)
-
-        """ for k, sparse_index_group_batch in enumerate(lS_i):
+        # for k, sparse_index_group_batch in enumerate(lS_i):
+        for k in range(len(lS_i)):
+            sparse_index_group_batch = lS_i[k]
             sparse_offset_group_batch = lS_o[k]
+            indices.extend(list(sparse_index_group_batch.tolist()))
+            offsets.extend(list(sparse_offset_group_batch.tolist()))
+            indices_len.append(len(sparse_index_group_batch))
+            offsets_len.append(len(sparse_offset_group_batch))
+
+            my_functions.lookup.argtypes = POINTER(c_uint32), POINTER(c_uint32), POINTER(c_uint32), POINTER(c_uint32)
+            my_functions.lookup.restype= None
+
+            indices_pointer=(c_uint32*(len(indices)))(*indices)
+            offsets_pointer=(c_uint32*(len(offsets)))(*offsets)
+            indices_len_pointer=(c_uint32*(len(indices_len)))(*indices_len)
+            offsets_len_pointer=(c_uint32*(len(offsets_len)))(*offsets_len)
+            lookup_result=my_functions.lookup(indices_pointer,offsets_pointer,indices_len_pointer,offsets_len_pointer)
 
             # embedding lookup
             # We are using EmbeddingBag, which implicitly uses sum operator.
@@ -321,17 +316,13 @@ class DLRM_Net(nn.Module):
             # happening vertically across 0 axis, resulting in a row vector
             E = emb_l[k]
             V = E(sparse_index_group_batch, sparse_offset_group_batch)
-            #print("V:"+str(len(V)))
-            #print(str(k))
-            #print(len(sparse_index_group_batch))
-            #print(str(sparse_offset_group_batch))
+
             ly.append(V)
 
-        #print(ly)"""
-        exit()
+        # print(ly)
         return ly
 
-    #export embedding tables and make them ready for MRAM
+    # dpu
     def export_emb(self, emb_l):
 
         my_functions.populate_mram.argtypes = c_uint32, c_uint64, c_uint64, POINTER(c_int32)
@@ -353,6 +344,8 @@ class DLRM_Net(nn.Module):
         #my_functions.toy_function()
             
         return
+    # dpu
+
 
     def interact_features(self, x, ly):
         if self.arch_interaction_op == "dot":
@@ -530,6 +523,30 @@ class DLRM_Net(nn.Module):
         return z0
 
 
+def dash_separated_ints(value):
+    vals = value.split('-')
+    for val in vals:
+        try:
+            int(val)
+        except ValueError:
+            raise argparse.ArgumentTypeError(
+                "%s is not a valid dash separated list of ints" % value)
+
+    return value
+
+
+def dash_separated_floats(value):
+    vals = value.split('-')
+    for val in vals:
+        try:
+            float(val)
+        except ValueError:
+            raise argparse.ArgumentTypeError(
+                "%s is not a valid dash separated list of floats" % value)
+
+    return value
+
+
 if __name__ == "__main__":
     ### import packages ###
     import sys
@@ -541,11 +558,15 @@ if __name__ == "__main__":
     )
     # model related parameters
     parser.add_argument("--arch-sparse-feature-size", type=int, default=2)
-    parser.add_argument("--arch-embedding-size", type=str, default="4-3-2")
+    parser.add_argument(
+        "--arch-embedding-size", type=dash_separated_ints, default="4-3-2")
     # j will be replaced with the table number
-    parser.add_argument("--arch-mlp-bot", type=str, default="4-3-2")
-    parser.add_argument("--arch-mlp-top", type=str, default="4-2-1")
-    parser.add_argument("--arch-interaction-op", type=str, default="dot")
+    parser.add_argument(
+        "--arch-mlp-bot", type=dash_separated_ints, default="4-3-2")
+    parser.add_argument(
+        "--arch-mlp-top", type=dash_separated_ints, default="4-2-1")
+    parser.add_argument(
+        "--arch-interaction-op", type=str, choices=['dot', 'cat'], default="dot")
     parser.add_argument("--arch-interaction-itself", action="store_true", default=False)
     # embedding table options
     parser.add_argument("--md-flag", action="store_true", default=False)
@@ -559,7 +580,8 @@ if __name__ == "__main__":
     # activations and loss
     parser.add_argument("--activation-function", type=str, default="relu")
     parser.add_argument("--loss-function", type=str, default="mse")  # or bce or wbce
-    parser.add_argument("--loss-weights", type=str, default="1.0-1.0")  # for wbce
+    parser.add_argument(
+        "--loss-weights", type=dash_separated_floats, default="1.0-1.0")  # for wbce
     parser.add_argument("--loss-threshold", type=float, default=0.0)  # 1.0e-7
     parser.add_argument("--round-targets", type=bool, default=False)
     # data
@@ -580,6 +602,11 @@ if __name__ == "__main__":
     parser.add_argument("--num-indices-per-lookup-fixed", type=bool, default=False)
     parser.add_argument("--num-workers", type=int, default=0)
     parser.add_argument("--memory-map", action="store_true", default=False)
+    parser.add_argument("--dataset-multiprocessing", action="store_true", default=False,
+                        help="The Kaggle dataset can be multiprocessed in an environment \
+                        with more than 7 CPU cores and more than 20 GB of memory. \n \
+                        The Terabyte dataset can be multiprocessed in an environment \
+                        with more than 24 CPU cores and at least 1 TB of memory.")
     # training
     parser.add_argument("--mini-batch-size", type=int, default=1)
     parser.add_argument("--nepochs", type=int, default=1)
@@ -927,8 +954,11 @@ if __name__ == "__main__":
             # when targeting inference on CPU
             ld_model = torch.load(args.load_model, map_location=torch.device('cpu'))
         dlrm.load_state_dict(ld_model["state_dict"])
-        print("load export running")
+
+        # dpu
+        print("load export running")	
         dlrm.export_emb(dlrm.emb_l)
+        # dpu
 
         ld_j = ld_model["iter"]
         ld_k = ld_model["epoch"]
@@ -1291,10 +1321,80 @@ if __name__ == "__main__":
     # export the model in onnx
     if args.save_onnx:
         dlrm_pytorch_onnx_file = "dlrm_s_pytorch.onnx"
+        batch_size = X_onnx.shape[0]
+        # debug prints
+        # print("batch_size", batch_size)
+        # print("inputs", X_onnx, lS_o_onnx, lS_i_onnx)
+        # print("output", dlrm_wrap(X_onnx, lS_o_onnx, lS_i_onnx, use_gpu, device))
+
+        # force list conversion
+        # if torch.is_tensor(lS_o_onnx):
+        #    lS_o_onnx = [lS_o_onnx[j] for j in range(len(lS_o_onnx))]
+        # if torch.is_tensor(lS_i_onnx):
+        #    lS_i_onnx = [lS_i_onnx[j] for j in range(len(lS_i_onnx))]
+        # force tensor conversion
+        # if isinstance(lS_o_onnx, list):
+        #     lS_o_onnx = torch.stack(lS_o_onnx)
+        # if isinstance(lS_i_onnx, list):
+        #     lS_i_onnx = torch.stack(lS_i_onnx)
+        # debug prints
+        print("X_onnx.shape", X_onnx.shape)
+        if torch.is_tensor(lS_o_onnx):
+            print("lS_o_onnx.shape", lS_o_onnx.shape)
+        else:
+            for oo in lS_o_onnx:
+                print("oo.shape", oo.shape)
+        if torch.is_tensor(lS_i_onnx):
+            print("lS_i_onnx.shape", lS_i_onnx.shape)
+        else:
+            for ii in lS_i_onnx:
+                print("ii.shape", ii.shape)
+
+        # name inputs and outputs
+        o_inputs = ["offsets"] if torch.is_tensor(lS_o_onnx) else ["offsets_"+str(i) for i in range(len(lS_o_onnx))]
+        i_inputs = ["indices"] if torch.is_tensor(lS_i_onnx) else ["indices_"+str(i) for i in range(len(lS_i_onnx))]
+        all_inputs = ["dense_x"] + o_inputs + i_inputs
+        #debug prints
+        print("inputs", all_inputs)
+
+        # create dynamic_axis dictionaries
+        do_inputs = [{'offsets': {1 : 'batch_size' }}] if torch.is_tensor(lS_o_onnx) else [{"offsets_"+str(i) :{0 : 'batch_size'}} for i in range(len(lS_o_onnx))]
+        di_inputs = [{'indices': {1 : 'batch_size' }}] if torch.is_tensor(lS_i_onnx) else [{"indices_"+str(i) :{0 : 'batch_size'}} for i in range(len(lS_i_onnx))]
+        dynamic_axes = {'dense_x' : {0 : 'batch_size'}, 'pred' : {0 : 'batch_size'}}
+        for do in do_inputs:
+            dynamic_axes.update(do)
+        for di in di_inputs:
+            dynamic_axes.update(di)
+        # debug prints
+        print(dynamic_axes)
+
+        # export model
         torch.onnx.export(
-            dlrm, (X_onnx, lS_o_onnx, lS_i_onnx), dlrm_pytorch_onnx_file, verbose=True, use_external_data_format=True
+            dlrm, (X_onnx, lS_o_onnx, lS_i_onnx), dlrm_pytorch_onnx_file, verbose=True, use_external_data_format=True, opset_version=11, input_names=all_inputs, output_names=["pred"], dynamic_axes=dynamic_axes
         )
         # recover the model back
-        dlrm_pytorch_onnx = onnx.load("dlrm_s_pytorch.onnx")
+        dlrm_pytorch_onnx = onnx.load(dlrm_pytorch_onnx_file)
         # check the onnx model
         onnx.checker.check_model(dlrm_pytorch_onnx)
+        '''
+        # run model using onnxruntime
+        import onnxruntime as rt
+
+        dict_inputs = {}
+        dict_inputs["dense_x"] = X_onnx.numpy().astype(np.float32)
+        if torch.is_tensor(lS_o_onnx):
+            dict_inputs["offsets"] = lS_o_onnx.numpy().astype(np.int64)
+        else:
+            for i in range(len(lS_o_onnx)):
+                dict_inputs["offsets_"+str(i)] = lS_o_onnx[i].numpy().astype(np.int64)
+        if torch.is_tensor(lS_i_onnx):
+            dict_inputs["indices"] = lS_i_onnx.numpy().astype(np.int64)
+        else:
+            for i in range(len(lS_i_onnx)):
+                dict_inputs["indices_"+str(i)] = lS_i_onnx[i].numpy().astype(np.int64)
+        print("dict_inputs", dict_inputs)
+
+        sess = rt.InferenceSession(dlrm_pytorch_onnx_file, rt.SessionOptions())
+        prediction = sess.run(output_names=["pred"], input_feed=dict_inputs)
+        print("prediction", prediction)
+        '''
