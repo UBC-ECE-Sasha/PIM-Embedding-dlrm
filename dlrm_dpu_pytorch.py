@@ -1,3 +1,10 @@
+# To run with Kaggle model:
+# python ../../../dlrm/dlrm_dpu_pytorch.py --arch-sparse-feature-size=16 
+# --arch-mlp-bot="13-512-256-64-16" --arch-mlp-top="512-256-1" --data-ge
+# neration=dataset --data-set=kaggle --processed-data-file="../../../dlrm
+# /raw_data/kaggleAdDisplayChallenge_processed.npz" --load-model="../../..
+# /dlrm/trainedModels/kaggle-model-graham-final.pt" --mini-batch-size=500
+#  --nepochs=1 --inference-only
 # Copyright (c) Facebook, Inc. and its affiliates.
 #
 # This source code is licensed under the MIT license found in the
@@ -294,11 +301,13 @@ class DLRM_Net(nn.Module):
         offsets_len=[]
         # for k, sparse_index_group_batch in enumerate(lS_i):
         for k in range(len(lS_i)):
+            print("len lS_i is"+str(len(lS_i)))
             sparse_index_group_batch = lS_i[k]
             sparse_offset_group_batch = lS_o[k]
             indices.extend(list(sparse_index_group_batch.tolist()))
             offsets.extend(list(sparse_offset_group_batch.tolist()))
             indices_len.append(len(sparse_index_group_batch))
+            print("len indices:"+str(len(sparse_index_group_batch)))
             offsets_len.append(len(sparse_offset_group_batch))
 
             my_functions.lookup.argtypes = POINTER(c_uint32), POINTER(c_uint32), POINTER(c_uint32), POINTER(c_uint32)
@@ -325,7 +334,7 @@ class DLRM_Net(nn.Module):
     # dpu
     def export_emb(self, emb_l):
 
-        my_functions.populate_mram.argtypes = c_uint32, c_uint64, c_uint64, POINTER(c_int32)
+        my_functions.populate_mram.argtypes = c_uint32, c_uint64, POINTER(c_int32)
         my_functions.populate_mram.restype= None
 
         for k in range(0, len(emb_l)):
@@ -339,7 +348,7 @@ class DLRM_Net(nn.Module):
                 for j in range(0, nr_cols):
                     emb_data.append(int(round(tmp_emb[i][j]*(10**9))))
             data_pointer=(c_int32*(len(emb_data)))(*emb_data)
-            my_functions.populate_mram(k,nr_rows,nr_cols,data_pointer)
+            my_functions.populate_mram(k,nr_rows,data_pointer)
 
         #my_functions.toy_function()
             
