@@ -186,6 +186,30 @@ class DLRM_Net(nn.Module):
         # approach 2: use Sequential container to wrap all layers
         return torch.nn.Sequential(*layers)
 
+    # dpu
+    def export_emb(self, emb_l):
+
+        my_functions.populate_mram.argtypes = c_uint32, c_uint64, POINTER(c_int32)
+        my_functions.populate_mram.restype= None
+
+        for k in range(0, len(emb_l)):
+            emb_data=[]
+            tmp_emb = list(emb_l[k].parameters())[0].tolist()
+            
+            nr_rows=len(tmp_emb)
+            nr_cols=len(tmp_emb[0])
+
+            for i in range(0, nr_rows):
+                for j in range(0, nr_cols):
+                    emb_data.append(int(round(tmp_emb[i][j]*(10**9))))
+            data_pointer=(c_int32*(len(emb_data)))(*emb_data)
+            my_functions.populate_mram(k,nr_rows,data_pointer)
+
+        #my_functions.toy_function()
+            
+        return
+    # dpu
+
     def create_emb(self, m, ln):
         emb_l = nn.ModuleList()
         for i in range(0, ln.size):
@@ -220,6 +244,8 @@ class DLRM_Net(nn.Module):
                 # EE.weight = Parameter(torch.tensor(W),requires_grad=True)
 
             emb_l.append(EE)
+        
+        self.export_emb(emb_l)
 
         return emb_l
 
@@ -295,30 +321,23 @@ class DLRM_Net(nn.Module):
         # 3. for a list of embedding tables there is a list of batched lookups
 
         ly = []
+        lx = []
         indices=[]
         offsets=[]
         indices_len=[]
         offsets_len=[]
         # for k, sparse_index_group_batch in enumerate(lS_i):
+        total_nr_batches=0
         for k in range(len(lS_i)):
-            print("len lS_i is"+str(len(lS_i)))
+            #print("len lS_i is"+str(len(lS_i)))
             sparse_index_group_batch = lS_i[k]
             sparse_offset_group_batch = lS_o[k]
             indices.extend(list(sparse_index_group_batch.tolist()))
             offsets.extend(list(sparse_offset_group_batch.tolist()))
             indices_len.append(len(sparse_index_group_batch))
-            print("len indices:"+str(len(sparse_index_group_batch)))
+            #print("len indices:"+str(len(sparse_index_group_batch)))
             offsets_len.append(len(sparse_offset_group_batch))
-
-            my_functions.lookup.argtypes = POINTER(c_uint32), POINTER(c_uint32), POINTER(c_uint32), POINTER(c_uint32)
-            my_functions.lookup.restype= None
-
-            indices_pointer=(c_uint32*(len(indices)))(*indices)
-            offsets_pointer=(c_uint32*(len(offsets)))(*offsets)
-            indices_len_pointer=(c_uint32*(len(indices_len)))(*indices_len)
-            offsets_len_pointer=(c_uint32*(len(offsets_len)))(*offsets_len)
-            lookup_result=my_functions.lookup(indices_pointer,offsets_pointer,indices_len_pointer,offsets_len_pointer)
-
+            total_nr_batches+=len(sparse_offset_group_batch)
             # embedding lookup
             # We are using EmbeddingBag, which implicitly uses sum operator.
             # The embeddings are represented as tall matrices, with sum
@@ -328,32 +347,34 @@ class DLRM_Net(nn.Module):
 
             ly.append(V)
 
-        # print(ly)
+        my_functions.lookup.argtypes = POINTER(c_uint32), POINTER(c_uint32), POINTER(c_uint64), POINTER(c_uint64), POINTER(c_int32)
+        my_functions.lookup.restype= None
+
+        total_nr_batches*=m_spa
+        indices_pointer=(c_uint32*(len(indices)))(*indices)
+        offsets_pointer=(c_uint32*(len(offsets)))(*offsets)
+        indices_len_pointer=(c_uint64*(len(indices_len)))(*indices_len)
+        offsets_len_pointer=(c_uint64*(len(offsets_len)))(*offsets_len)
+        lookup_results=(c_int32*(total_nr_batches))(*lx)
+        my_functions.lookup(indices_pointer,offsets_pointer,indices_len_pointer,offsets_len_pointer,lookup_results)
+
+        """ counter=0
+        print("printing items in python")    
+        for emb_list in ly:
+            for emb_element in emb_list:
+                for numb in emb_element:
+                    print('['+str(numb.item()*(10**9))+", "+str(lookup_results[counter])+']')
+                    counter+=1
+        
+        counter=0
+        print("printing diff in python")    
+        for emb_list in ly:
+            for emb_element in emb_list:
+                for numb in emb_element:
+                    print(str((numb.item()*(10**9))-lookup_results[counter])+", ",end='')
+                    counter+=1 """
+        exit()
         return ly
-
-    # dpu
-    def export_emb(self, emb_l):
-
-        my_functions.populate_mram.argtypes = c_uint32, c_uint64, POINTER(c_int32)
-        my_functions.populate_mram.restype= None
-
-        for k in range(0, len(emb_l)):
-            emb_data=[]
-            tmp_emb = list(emb_l[k].parameters())[0].tolist()
-            
-            nr_rows=len(tmp_emb)
-            nr_cols=len(tmp_emb[0])
-
-            for i in range(0, nr_rows):
-                for j in range(0, nr_cols):
-                    emb_data.append(int(round(tmp_emb[i][j]*(10**9))))
-            data_pointer=(c_int32*(len(emb_data)))(*emb_data)
-            my_functions.populate_mram(k,nr_rows,data_pointer)
-
-        #my_functions.toy_function()
-            
-        return
-    # dpu
 
 
     def interact_features(self, x, ly):
