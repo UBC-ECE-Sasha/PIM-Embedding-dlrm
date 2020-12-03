@@ -327,9 +327,9 @@ class DLRM_Net(nn.Module):
         indices_len=[]
         offsets_len=[]
         # for k, sparse_index_group_batch in enumerate(lS_i):
-        total_nr_batches=0
+        final_result_len=0
         for k in range(len(lS_i)):
-            #print("len lS_i is"+str(len(lS_i)))
+            
             sparse_index_group_batch = lS_i[k]
             sparse_offset_group_batch = lS_o[k]
             indices.extend(list(sparse_index_group_batch.tolist()))
@@ -337,7 +337,7 @@ class DLRM_Net(nn.Module):
             indices_len.append(len(sparse_index_group_batch))
             #print("len indices:"+str(len(sparse_index_group_batch)))
             offsets_len.append(len(sparse_offset_group_batch))
-            total_nr_batches+=len(sparse_offset_group_batch)
+            final_result_len+=len(sparse_offset_group_batch.tolist())
             # embedding lookup
             # We are using EmbeddingBag, which implicitly uses sum operator.
             # The embeddings are represented as tall matrices, with sum
@@ -350,29 +350,38 @@ class DLRM_Net(nn.Module):
         my_functions.lookup.argtypes = POINTER(c_uint32), POINTER(c_uint32), POINTER(c_uint64), POINTER(c_uint64), POINTER(c_int32)
         my_functions.lookup.restype= None
 
-        total_nr_batches*=m_spa
+        final_result_len*=m_spa
         indices_pointer=(c_uint32*(len(indices)))(*indices)
         offsets_pointer=(c_uint32*(len(offsets)))(*offsets)
         indices_len_pointer=(c_uint64*(len(indices_len)))(*indices_len)
         offsets_len_pointer=(c_uint64*(len(offsets_len)))(*offsets_len)
-        lookup_results=(c_int32*(total_nr_batches))(*lx)
+        lookup_results=(c_int32*(final_result_len))(*lx)
         my_functions.lookup(indices_pointer,offsets_pointer,indices_len_pointer,offsets_len_pointer,lookup_results)
 
-        """ counter=0
-        print("printing items in python")    
-        for emb_list in ly:
-            for emb_element in emb_list:
-                for numb in emb_element:
-                    print('['+str(numb.item()*(10**9))+", "+str(lookup_results[counter])+']')
-                    counter+=1
         
-        counter=0
-        print("printing diff in python")    
-        for emb_list in ly:
-            for emb_element in emb_list:
-                for numb in emb_element:
-                    print(str((numb.item()*(10**9))-lookup_results[counter])+", ",end='')
-                    counter+=1 """
+        """ counter=0
+        i=0
+        max_diff=0
+        print("printing dlrm ans in python")    
+        for table in ly:
+            j=0
+            print("table no:"+str(i))
+            for batch in table:
+                print("mini-batch no:"+str(j))
+                for numb in batch:
+                    ans=(numb.item()*(10**9)-lookup_results[counter])
+                    if (abs(ans)>max_diff):
+                        max_diff=abs(ans)
+                    print(str(ans)+", ",end='')
+                    counter+=1
+                print(" ")
+                print("----------")
+                j+=1
+            print(" ")
+            print("------------------------------------------------------------")
+            i+=1
+        print("max diff:"+str(max_diff)) """
+
         exit()
         return ly
 
