@@ -347,7 +347,8 @@ class DLRM_Net(nn.Module):
 
             ly.append(V)
 
-        my_functions.lookup.argtypes = POINTER(c_uint32), POINTER(c_uint32), POINTER(c_uint64), POINTER(c_uint64), POINTER(c_int32)
+        my_functions.lookup.argtypes = POINTER(c_uint32), POINTER(c_uint32), POINTER(c_uint64),
+        POINTER(c_uint64),POINTER(c_int32)
         my_functions.lookup.restype= None
 
         final_result_len*=m_spa
@@ -356,8 +357,18 @@ class DLRM_Net(nn.Module):
         indices_len_pointer=(c_uint64*(len(indices_len)))(*indices_len)
         offsets_len_pointer=(c_uint64*(len(offsets_len)))(*offsets_len)
         lookup_results=(c_int32*(final_result_len))(*lx)
-        my_functions.lookup(indices_pointer,offsets_pointer,indices_len_pointer,offsets_len_pointer,lookup_results)
+        my_functions.lookup(indices_pointer,offsets_pointer,indices_len_pointer,offsets_len_pointer,
+        lookup_results)
 
+        table_results=[]
+        lr=[]
+        tble_resul_strt=0
+        for i,tbl_resul_len in enumerate(offsets_len):
+            table_results.append(torch.Tensor(lookup_results[tble_resul_strt:tble_resul_strt+
+            tbl_resul_len*m_spa]))
+            lr.append(table_results[i].reshape(args.mini_batch_size,m_spa))
+            lr[i].requires_grad=True
+            tble_resul_strt+=(tbl_resul_len*m_spa)
         
         """ counter=0
         i=0
@@ -382,8 +393,7 @@ class DLRM_Net(nn.Module):
             i+=1
         print("max diff:"+str(max_diff)) """
 
-        exit()
-        return ly
+        return lr
 
 
     def interact_features(self, x, ly):
