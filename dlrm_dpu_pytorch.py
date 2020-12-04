@@ -313,14 +313,7 @@ class DLRM_Net(nn.Module):
         return layers(x)
 
     def apply_emb(self, lS_o, lS_i, emb_l):
-        # WARNING: notice that we are processing the batch at once. We implicitly
-        # assume that the data is laid out such that:
-        # 1. each embedding is indexed with a group of sparse indices,
-        #   corresponding to a single lookup
-        # 2. for each embedding the lookups are further organized into a batch
-        # 3. for a list of embedding tables there is a list of batched lookups
 
-        ly = []
         lx = []
         indices=[]
         offsets=[]
@@ -335,17 +328,9 @@ class DLRM_Net(nn.Module):
             indices.extend(list(sparse_index_group_batch.tolist()))
             offsets.extend(list(sparse_offset_group_batch.tolist()))
             indices_len.append(len(sparse_index_group_batch))
-            #print("len indices:"+str(len(sparse_index_group_batch)))
             offsets_len.append(len(sparse_offset_group_batch))
             final_result_len+=len(sparse_offset_group_batch.tolist())
-            # embedding lookup
-            # We are using EmbeddingBag, which implicitly uses sum operator.
-            # The embeddings are represented as tall matrices, with sum
-            # happening vertically across 0 axis, resulting in a row vector
-            E = emb_l[k]
-            V = E(sparse_index_group_batch, sparse_offset_group_batch)
-
-            ly.append(V)
+            
 
         my_functions.lookup.argtypes = POINTER(c_uint32), POINTER(c_uint32), POINTER(c_uint64),
         POINTER(c_uint64),POINTER(c_int32)
