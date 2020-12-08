@@ -245,7 +245,8 @@ class DLRM_Net(nn.Module):
 
             emb_l.append(EE)
         
-        self.export_emb(emb_l)
+        if args.data_generation == "random":
+            self.export_emb(emb_l)
 
         return emb_l
 
@@ -319,7 +320,6 @@ class DLRM_Net(nn.Module):
         offsets=[]
         indices_len=[]
         offsets_len=[]
-        # for k, sparse_index_group_batch in enumerate(lS_i):
         final_result_len=0
         for k in range(len(lS_i)):
             
@@ -990,8 +990,8 @@ if __name__ == "__main__":
         dlrm.load_state_dict(ld_model["state_dict"])
 
         # dpu
-        print("load export running")	
-        dlrm.export_emb(dlrm.emb_l)
+        if args.data_generation=="dataset":	
+            dlrm.export_emb(dlrm.emb_l)
         # dpu
 
         ld_j = ld_model["iter"]
