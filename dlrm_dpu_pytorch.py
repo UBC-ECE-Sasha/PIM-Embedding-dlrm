@@ -101,12 +101,23 @@ import sklearn.metrics
 from torch.optim.lr_scheduler import _LRScheduler
 
 #dpu
+import sys
+sys.path.append('../upmem')
+import dputypes
 from ctypes import *	
 so_file="./emblib.so"
-my_functions=CDLL(so_file)	
+my_functions=CDLL(so_file)
+from dputypes import *	
 #dpu
 
 exc = getattr(builtins, "IOError", "FileNotFoundError")
+
+class RTConf:
+    def __init__(self, so_file, num_dpu, runtimes, runtime_file):
+        self.so_file = so_file
+        self.num_dpu = num_dpu
+        self.runtimes = runtimes
+        self.runtime_file = runtime_file
 
 class LRPolicyScheduler(_LRScheduler):
     def __init__(self, optimizer, num_warmup_steps, decay_start_step, num_decay_steps):
@@ -189,7 +200,7 @@ class DLRM_Net(nn.Module):
     # dpu
     def export_emb(self, emb_l):
 
-        my_functions.populate_mram.argtypes = c_uint32, c_uint64, POINTER(c_int32)
+        my_functions.populate_mram.argtypes = c_uint32, c_uint64, POINTER(c_int32), POINTER(DpuRuntimeTotals)
         my_functions.populate_mram.restype= None
 
         for k in range(0, len(emb_l)):
@@ -203,7 +214,8 @@ class DLRM_Net(nn.Module):
                 for j in range(0, nr_cols):
                     emb_data.append(int(round(tmp_emb[i][j]*(10**9))))
             data_pointer=(c_int32*(len(emb_data)))(*emb_data)
-            my_functions.populate_mram(k,nr_rows,data_pointer)
+            runtimes = pointer(DpuRuntimeTotals())
+            my_functions.populate_mram(k,nr_rows,data_pointer,runtimes)
 
         #my_functions.toy_function()
             
@@ -321,6 +333,7 @@ class DLRM_Net(nn.Module):
         indices_len=[]
         offsets_len=[]
         final_result_len=0
+        #ly=[]
         for k in range(len(lS_i)):
             
             sparse_index_group_batch = lS_i[k]
@@ -330,10 +343,14 @@ class DLRM_Net(nn.Module):
             indices_len.append(len(sparse_index_group_batch))
             offsets_len.append(len(sparse_offset_group_batch))
             final_result_len+=len(sparse_offset_group_batch.tolist())
+
+            #E = emb_l[k]
+           # V = E(sparse_index_group_batch, sparse_offset_group_batch)
+            #ly.append(V)
             
 
         my_functions.lookup.argtypes = POINTER(c_uint32), POINTER(c_uint32), POINTER(c_uint64),
-        POINTER(c_uint64),POINTER(c_int32)
+        POINTER(c_uint64),POINTER(c_int32), POINTER(DpuRuntimeGroup)
         my_functions.lookup.restype= None
 
         final_result_len*=m_spa
@@ -342,8 +359,14 @@ class DLRM_Net(nn.Module):
         indices_len_pointer=(c_uint64*(len(indices_len)))(*indices_len)
         offsets_len_pointer=(c_uint64*(len(offsets_len)))(*offsets_len)
         lookup_results=(c_int32*(final_result_len))(*lx)
+        rg = None	
+        runtimes_init = [DpuRuntimeGroup(length=args.num_batches)] * len(lS_i)		
+        rg = (DpuRuntimeGroup * len(lS_i))(*runtimes_init)
         my_functions.lookup(indices_pointer,offsets_pointer,indices_len_pointer,offsets_len_pointer,
-        lookup_results)
+        lookup_results,rg)
+
+        config=RTConf(so_file,len(lS_i),rg,"runtime.csv")
+        write_results(config, rg)
 
         table_results=[]
         lr=[]
@@ -354,6 +377,7 @@ class DLRM_Net(nn.Module):
             lr.append(table_results[i].reshape(args.mini_batch_size,m_spa))
             lr[i].requires_grad=True
             tble_resul_strt+=(tbl_resul_len*m_spa)
+
         
         """ counter=0
         i=0
