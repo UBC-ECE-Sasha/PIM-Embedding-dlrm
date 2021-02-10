@@ -95,6 +95,39 @@ from torch.optim.lr_scheduler import _LRScheduler
 
 exc = getattr(builtins, "IOError", "FileNotFoundError")
 
+
+def avg_timer(method):
+    times = []
+    
+    def timed(*args, **kw):
+        ts = time.time()
+        result = method(*args, **kw)
+        te = time.time()
+       
+        times.append(te-ts)
+        #if (len(times)%nbatches==0):
+        print('%r  %2.2f ms (%2.2f ms)' % \
+            (method.__name__, (te - ts) * 1000, (sum(times) / len(times)) * 1000)+" ,iteration="+str(len(times)))
+
+        return result
+    return timed
+
+def avg_timer2(method):
+    times = []
+
+    def timed(*args, **kw):
+        ts = time.time()
+        result = method(*args, **kw)
+        te = time.time()
+        
+        times.append(te-ts)
+        #if (len(times) % nbatches==0):
+        print('%r  %2.2f ms (%2.2f ms)' % \
+            (method.__name__, (te - ts) * 1000, (sum(times) / len(times)) * 1000)+" ,iteration="+str(len(times)))
+        return result
+    return timed
+
+
 class LRPolicyScheduler(_LRScheduler):
     def __init__(self, optimizer, num_warmup_steps, decay_start_step, num_decay_steps):
         self.num_warmup_steps = num_warmup_steps
@@ -273,6 +306,7 @@ class DLRM_Net(nn.Module):
         # approach 2: use Sequential container to wrap all layers
         return layers(x)
 
+    @avg_timer
     def apply_emb(self, lS_o, lS_i, emb_l):
         # WARNING: notice that we are processing the batch at once. We implicitly
         # assume that the data is laid out such that:
@@ -293,10 +327,8 @@ class DLRM_Net(nn.Module):
             # happening vertically across 0 axis, resulting in a row vector
             E = emb_l[k]
             V = E(sparse_index_group_batch, sparse_offset_group_batch)
-
             ly.append(V)
 
-        # print(ly)
         return ly
 
     def interact_features(self, x, ly):
@@ -333,6 +365,7 @@ class DLRM_Net(nn.Module):
 
         return R
 
+    @avg_timer2
     def forward(self, dense_x, lS_o, lS_i):
         if self.ndevices <= 1:
             return self.sequential_forward(dense_x, lS_o, lS_i)

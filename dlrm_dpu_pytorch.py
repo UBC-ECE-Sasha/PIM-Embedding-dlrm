@@ -102,7 +102,7 @@ from torch.optim.lr_scheduler import _LRScheduler
 
 #dpu
 import sys
-sys.path.append('../upmem')
+sys.path.append('../..')
 import dputypes
 from ctypes import *	
 so_file="./emblib.so"
@@ -111,6 +111,37 @@ from dputypes import *
 #dpu
 
 exc = getattr(builtins, "IOError", "FileNotFoundError")
+
+def avg_timer(method):
+    times = []
+    
+    def timed(*args, **kw):
+        ts = time.time()
+        result = method(*args, **kw)
+        te = time.time()
+       
+        times.append(te-ts)
+        #if (len(times)%nbatches==0):
+        print('%r  %2.2f ms (%2.2f ms)' % \
+            (method.__name__, (te - ts) * 1000, (sum(times) / len(times)) * 1000)+" ,iteration="+str(len(times)))
+
+        return result
+    return timed
+
+def avg_timer2(method):
+    times = []
+
+    def timed(*args, **kw):
+        ts = time.time()
+        result = method(*args, **kw)
+        te = time.time()
+        
+        times.append(te-ts)
+        #if (len(times) % nbatches==0):
+        print('%r  %2.2f ms (%2.2f ms)' % \
+            (method.__name__, (te - ts) * 1000, (sum(times) / len(times)) * 1000)+" ,iteration="+str(len(times)))
+        return result
+    return timed
 
 class RTConf:
     def __init__(self, so_file, num_dpu, runtimes, runtime_file):
@@ -325,6 +356,7 @@ class DLRM_Net(nn.Module):
         # approach 2: use Sequential container to wrap all layers
         return layers(x)
 
+    @avg_timer
     def apply_emb(self, lS_o, lS_i, emb_l):
 
         lx = []
@@ -439,6 +471,7 @@ class DLRM_Net(nn.Module):
 
         return R
 
+    @avg_timer2
     def forward(self, dense_x, lS_o, lS_i):
         if self.ndevices <= 1:
             return self.sequential_forward(dense_x, lS_o, lS_i)
