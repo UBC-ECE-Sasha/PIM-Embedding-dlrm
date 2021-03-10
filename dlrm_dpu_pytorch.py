@@ -366,38 +366,46 @@ class DLRM_Net(nn.Module):
         offsets_len=[]
         final_result_len=0
         #ly=[]
+        queries=[]
         for k in range(len(lS_i)):
             
             sparse_index_group_batch = lS_i[k]
             sparse_offset_group_batch = lS_o[k]
-            indices.extend(list(sparse_index_group_batch.tolist()))
-            offsets.extend(list(sparse_offset_group_batch.tolist()))
-            indices_len.append(len(sparse_index_group_batch))
-            offsets_len.append(len(sparse_offset_group_batch))
+            queries.append(LookupQuery(nr_indices=len(sparse_index_group_batch),
+            nr_offsets=len(sparse_offset_group_batch),indices=(c_uint32*
+            (len(sparse_index_group_batch.tolist()))(*list(sparse_index_group_batch))),
+            offsets=(c_uint32*(len(sparse_offset_group_batch()))(*list(sparse_offset_group_batch())))))
+            #indices.extend(list(sparse_index_group_batch.tolist()))
+            #offsets.extend(list(sparse_offset_group_batch.tolist()))
+            #indices_len.append(len(sparse_index_group_batch))
+            #offsets_len.append(len(sparse_offset_group_batch))
             final_result_len+=len(sparse_offset_group_batch.tolist())
 
             #E = emb_l[k]
-           # V = E(sparse_index_group_batch, sparse_offset_group_batch)
+            #V = E(sparse_index_group_batch, sparse_offset_group_batch)
             #ly.append(V)
             
 
-        my_functions.lookup.argtypes = POINTER(c_uint32), POINTER(c_uint32), POINTER(c_uint64),
-        POINTER(c_uint64),POINTER(c_int32), POINTER(DpuRuntimeGroup)
+        my_functions.lookup.argtypes = POINTER(LookupQuery),POINTER(c_int32), POINTER(DpuRuntimeGroup)
         my_functions.lookup.restype= None
 
         final_result_len*=m_spa
-        indices_pointer=(c_uint32*(len(indices)))(*indices)
-        offsets_pointer=(c_uint32*(len(offsets)))(*offsets)
-        indices_len_pointer=(c_uint64*(len(indices_len)))(*indices_len)
-        offsets_len_pointer=(c_uint64*(len(offsets_len)))(*offsets_len)
+        #indices_pointer=(c_uint32*(len(indices)))(*indices)
+        #offsets_pointer=(c_uint32*(len(offsets)))(*offsets)
+        #indices_len_pointer=(c_uint64*(len(indices_len)))(*indices_len)
+        #offsets_len_pointer=(c_uint64*(len(offsets_len)))(*offsets_len)
         lookup_results=(c_int32*(final_result_len))(*lx)
+
         rg = None	
         runtimes_init = [DpuRuntimeGroup(length=args.num_batches)] * len(lS_i)		
-        rg = (DpuRuntimeGroup * len(lS_i))(*runtimes_init)
-        my_functions.lookup(indices_pointer,offsets_pointer,indices_len_pointer,offsets_len_pointer,
-        lookup_results,rg)
+        rg = (DpuRuntimeGroup * len(emb_l))(*runtimes_init)
 
-        config=RTConf(so_file,len(lS_i),rg,"runtime.csv")
+        input_queries=None
+        input_queries= (LookupQuery * len(queries))(*queries)
+
+        my_functions.lookup(input_queries,lookup_results,rg)
+
+        config=RTConf(so_file,len(emb_l),rg,"runtime.csv")
         write_results(config, rg)
 
         table_results=[]
