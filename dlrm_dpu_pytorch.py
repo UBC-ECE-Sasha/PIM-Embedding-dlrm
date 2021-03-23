@@ -360,32 +360,33 @@ class DLRM_Net(nn.Module):
     def apply_emb(self, lS_o, lS_i, emb_l):
 
         lx = []
-        indices=[]
-        offsets=[]
-        indices_len=[]
         offsets_len=[]
         final_result_len=0
         #ly=[]
-        queries=[]
+        queries=[LookupQuery] * len(lS_i)	
         for k in range(len(lS_i)):
             
             sparse_index_group_batch = lS_i[k]
             sparse_offset_group_batch = lS_o[k]
-            queries.append(LookupQuery(nr_indices=len(sparse_index_group_batch),
-            nr_offsets=len(sparse_offset_group_batch),indices=(c_uint32*
-            (len(sparse_index_group_batch.tolist()))(*list(sparse_index_group_batch))),
-            offsets=(c_uint32*(len(sparse_offset_group_batch()))(*list(sparse_offset_group_batch())))))
+            queries[k]=LookupQuery(
+            nr_indices=c_uint32(len(sparse_index_group_batch)),
+            nr_offsets=c_uint32(len(sparse_offset_group_batch)),
+            indices=(c_uint32*(1024))(*list(sparse_index_group_batch)),
+            offsets=(c_uint32*(32))(*list(sparse_offset_group_batch))
+            )
+
+            #print("in python dpu "+str(k)+" nr_offsets= "+str(len(sparse_offset_group_batch)))
+            #print("in python dpu "+str(k)+" nr_indices= "+str(len(sparse_index_group_batch)))
             #indices.extend(list(sparse_index_group_batch.tolist()))
             #offsets.extend(list(sparse_offset_group_batch.tolist()))
             #indices_len.append(len(sparse_index_group_batch))
-            #offsets_len.append(len(sparse_offset_group_batch))
+            offsets_len.append(len(sparse_offset_group_batch))
             final_result_len+=len(sparse_offset_group_batch.tolist())
 
             #E = emb_l[k]
             #V = E(sparse_index_group_batch, sparse_offset_group_batch)
             #ly.append(V)
             
-
         my_functions.lookup.argtypes = POINTER(LookupQuery),POINTER(c_int32), POINTER(DpuRuntimeGroup)
         my_functions.lookup.restype= None
 
@@ -407,16 +408,6 @@ class DLRM_Net(nn.Module):
 
         config=RTConf(so_file,len(emb_l),rg,"runtime.csv")
         write_results(config, rg)
-
-        table_results=[]
-        lr=[]
-        tble_resul_strt=0
-        for i,tbl_resul_len in enumerate(offsets_len):
-            table_results.append(torch.Tensor(lookup_results[tble_resul_strt:tble_resul_strt+
-            tbl_resul_len*m_spa]))
-            lr.append(table_results[i].reshape(args.mini_batch_size,m_spa))
-            lr[i].requires_grad=True
-            tble_resul_strt+=(tbl_resul_len*m_spa)
 
         
         """ counter=0
@@ -441,6 +432,16 @@ class DLRM_Net(nn.Module):
             print("------------------------------------------------------------")
             i+=1
         print("max diff:"+str(max_diff)) """
+
+        table_results=[]
+        lr=[]
+        tble_resul_strt=0
+        for i,tbl_resul_len in enumerate(offsets_len):
+            table_results.append(torch.Tensor(lookup_results[tble_resul_strt:
+            tble_resul_strt+tbl_resul_len*m_spa]))
+            lr.append(table_results[i].reshape(args.mini_batch_size,m_spa))
+            lr[i].requires_grad=True
+            tble_resul_strt+=(tbl_resul_len*m_spa)
 
         return lr
 
