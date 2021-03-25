@@ -359,6 +359,7 @@ class DLRM_Net(nn.Module):
     @avg_timer
     def apply_emb(self, lS_o, lS_i, emb_l):
 
+        start_pre=time.time()
         lx = []
         offsets_len=[]
         final_result_len=0
@@ -395,11 +396,15 @@ class DLRM_Net(nn.Module):
         input_queries=None
         input_queries= (LookupQuery * len(queries))(*queries)
 
+        end_pre=time.time()
+        print("pre-process time:"+str((end_pre-start_pre)*1000))
+        start_launch=time.time()
         my_functions.lookup(input_queries,lookup_results,rg)
 
         config=RTConf(so_file,len(emb_l),rg,"runtime.csv")
         write_results(config, rg)
-
+        end_launch=time.time()
+        print("launch time:"+str((end_launch-start_launch)*1000))
         
         """ counter=0
         i=0
@@ -424,6 +429,7 @@ class DLRM_Net(nn.Module):
             i+=1
         print("max diff:"+str(max_diff)) """
 
+        start_post=time.time()
         table_results=[]
         lr=[]
         tble_resul_strt=0
@@ -433,6 +439,9 @@ class DLRM_Net(nn.Module):
             lr.append(table_results[i].reshape(args.mini_batch_size,m_spa))
             lr[i].requires_grad=True
             tble_resul_strt+=(tbl_resul_len*m_spa)
+        end_post=time.time()
+
+        print("post-process time:"+str((end_post-start_post)*1000))
 
         return lr
 
