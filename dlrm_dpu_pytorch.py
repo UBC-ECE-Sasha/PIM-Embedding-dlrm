@@ -122,8 +122,8 @@ def avg_timer(method):
        
         times.append(te-ts)
         #if (len(times)%nbatches==0):
-        print('%r  %2.2f ms' % \
-            (method.__name__, (sum(times) / len(times)) * 1000)+" ,iteration="+str(len(times)))
+        print('%r  %2.2f ms (%2.2f ms)' % \
+            (method.__name__, (te - ts) * 1000, (sum(times) / len(times)) * 1000)+" ,iteration="+str(len(times)))
 
         return result
     return timed
@@ -138,8 +138,8 @@ def avg_timer2(method):
         
         times.append(te-ts)
         #if (len(times) % nbatches==0):
-        print('%r  %2.2f ms' % \
-            (method.__name__, (sum(times) / len(times)) * 1000)+" ,iteration="+str(len(times)))
+        print('%r  %2.2f ms (%2.2f ms)' % \
+            (method.__name__, (te - ts) * 1000, (sum(times) / len(times)) * 1000)+" ,iteration="+str(len(times)))
         return result
     return timed
 
@@ -359,7 +359,6 @@ class DLRM_Net(nn.Module):
     @avg_timer
     def apply_emb(self, lS_o, lS_i, emb_l):
 
-        start_pre=time.time()
         lx = []
         offsets_len=[]
         final_result_len=0
@@ -372,10 +371,15 @@ class DLRM_Net(nn.Module):
             queries[k]=LookupQuery(
             nr_indices=c_uint32(len(sparse_index_group_batch)),
             nr_offsets=c_uint32(len(sparse_offset_group_batch)),
-            indices=(c_uint32*(2048))(*list(sparse_index_group_batch)),
-            offsets=(c_uint32*(64))(*list(sparse_offset_group_batch))
+            indices=(c_uint32*(1024))(*list(sparse_index_group_batch)),
+            offsets=(c_uint32*(32))(*list(sparse_offset_group_batch))
             )
 
+            #print("in python dpu "+str(k)+" nr_offsets= "+str(len(sparse_offset_group_batch)))
+            #print("in python dpu "+str(k)+" nr_indices= "+str(len(sparse_index_group_batch)))
+            #indices.extend(list(sparse_index_group_batch.tolist()))
+            #offsets.extend(list(sparse_offset_group_batch.tolist()))
+            #indices_len.append(len(sparse_index_group_batch))
             offsets_len.append(len(sparse_offset_group_batch))
             final_result_len+=len(sparse_offset_group_batch.tolist())
 
@@ -387,6 +391,10 @@ class DLRM_Net(nn.Module):
         my_functions.lookup.restype= None
 
         final_result_len*=m_spa
+        #indices_pointer=(c_uint32*(len(indices)))(*indices)
+        #offsets_pointer=(c_uint32*(len(offsets)))(*offsets)
+        #indices_len_pointer=(c_uint64*(len(indices_len)))(*indices_len)
+        #offsets_len_pointer=(c_uint64*(len(offsets_len)))(*offsets_len)
         lookup_results=(c_int32*(final_result_len))(*lx)
 
         rg = None	
@@ -396,15 +404,11 @@ class DLRM_Net(nn.Module):
         input_queries=None
         input_queries= (LookupQuery * len(queries))(*queries)
 
-        end_pre=time.time()
-        print("pre-process time:"+str((end_pre-start_pre)*1000))
-        start_launch=time.time()
         my_functions.lookup(input_queries,lookup_results,rg)
 
         config=RTConf(so_file,len(emb_l),rg,"runtime.csv")
         write_results(config, rg)
-        end_launch=time.time()
-        print("launch time:"+str((end_launch-start_launch)*1000))
+
         
         """ counter=0
         i=0
@@ -429,7 +433,6 @@ class DLRM_Net(nn.Module):
             i+=1
         print("max diff:"+str(max_diff)) """
 
-        start_post=time.time()
         table_results=[]
         lr=[]
         tble_resul_strt=0
@@ -439,9 +442,6 @@ class DLRM_Net(nn.Module):
             lr.append(table_results[i].reshape(args.mini_batch_size,m_spa))
             lr[i].requires_grad=True
             tble_resul_strt+=(tbl_resul_len*m_spa)
-        end_post=time.time()
-
-        print("post-process time:"+str((end_post-start_post)*1000))
 
         return lr
 
