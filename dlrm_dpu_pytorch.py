@@ -108,6 +108,7 @@ from ctypes import *
 so_file="./emblib.so"
 my_functions=CDLL(so_file)
 from dputypes import *	
+import numpy as np
 #dpu
 
 exc = getattr(builtins, "IOError", "FileNotFoundError")
@@ -235,21 +236,36 @@ class DLRM_Net(nn.Module):
         my_functions.populate_mram.restype= None
 
         for k in range(0, len(emb_l)):
-            emb_data=[]
-            tmp_emb = list(emb_l[k].parameters())[0].tolist()
+            tmp_emb = np.copy(list(emb_l[k].parameters())[0].tolist())
+            emb_data = np.rint((tmp_emb * 1E9).flatten()).astype(int).tolist()
+            nr_rows = len(tmp_emb)
+
+            """
+            # OLD CODE:
+            tmp_emb_old = list(emb_l[k].parameters())[0].tolist()
+            emb_data_old=[]
             
-            nr_rows=len(tmp_emb)
-            nr_cols=len(tmp_emb[0])
+            nr_rows=len(tmp_emb_old)
+            nr_cols=len(tmp_emb_old[0])
 
             for i in range(0, nr_rows):
                 for j in range(0, nr_cols):
-                    emb_data.append(int(round(tmp_emb[i][j]*(10**9))))
+                    emb_data_old.append(int(round(tmp_emb_old[i][j]*(10**9))))
+            """
+
+            """
+            # TEST EQUALITY
+            failed = False
+            for v in zip(enumerate(sorted(emb_data)), enumerate(sorted(emb_data_old))):
+                if v[0] != v[1]:
+                    print(f"{v[0]=} != {v[1]=}")
+                    failed = True
+            assert(not failed)
+            """
             data_pointer=(c_int32*(len(emb_data)))(*emb_data)
             runtimes = pointer(DpuRuntimeTotals())
             my_functions.populate_mram(k,nr_rows,data_pointer,runtimes)
 
-        #my_functions.toy_function()
-            
         return
     # dpu
 
